@@ -255,28 +255,28 @@ body {
   min-height: 0;
 }
 
+/* Grade que sempre cabe na tela: as linhas dividem a altura disponível
+   (1fr), então entrar mais gente encolhe os quadrados em vez de empurrar
+   alguém pra fora. O número de colunas vem do JS, via --cols. */
 .videos-grid {
   flex: 1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  padding: 16px;
-  overflow-y: auto;
-  align-content: center;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 10px;
+  padding: 12px;
+  overflow: hidden;
 }
 .video-tile {
   position: relative;
   background: #111214;
   border-radius: 8px;
   overflow: hidden;
-  aspect-ratio: 1 / 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 1 1 280px;
-  max-width: 560px;
-  min-width: 180px;
 }
 .video-tile video {
   width: 100%;
@@ -286,8 +286,11 @@ body {
 .video-tile.cam-off video { display: none; }
 .video-tile .avatar-placeholder {
   display: none;
-  width: 40%;
-  height: 40%;
+  /* círculo baseado na altura: o tile não é mais quadrado, então
+     width+height em % viraria uma elipse */
+  height: 42%;
+  width: auto;
+  aspect-ratio: 1 / 1;
   border-radius: 50%;
   background: var(--brand);
   color: white;
@@ -541,16 +544,10 @@ body {
   .join-box { width: 90%; max-width: 340px; padding: 28px 22px; }
   .join-box input, .join-box button { padding: 14px; font-size: 16px; }
 
-  /* Vídeos: uma coluna larga (ou duas quando couber), com espaço para a dock */
+  /* Espaço embaixo para a barra de controles flutuante não cobrir ninguém */
   .videos-grid {
-    padding: 10px 10px 88px;
-    gap: 10px;
-    align-content: start;
-  }
-  .video-tile {
-    flex: 1 1 100%;
-    max-width: 100%;
-    min-width: 0;
+    padding: 8px 8px 84px;
+    gap: 8px;
   }
   .video-tile .fullscreen-btn {
     opacity: 1;

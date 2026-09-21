@@ -392,6 +392,7 @@ function addVideoTile(id, label, stream, isLocal, tileCamOn, tileMicOn) {
     tile.appendChild(unlockBtn);
     tile.appendChild(fullscreenBtn);
     videosGrid.appendChild(tile);
+    layoutGrid();
   }
   tile.classList.toggle('cam-off', !tileCamOn);
   tile.classList.toggle('mic-off', tileMicOn === false);
@@ -410,6 +411,16 @@ function addVideoTile(id, label, stream, isLocal, tileCamOn, tileMicOn) {
 function removeVideoTile(id) {
   const tile = document.getElementById('tile-' + id);
   if (tile) tile.remove();
+  layoutGrid();
+}
+
+// Escolhe as colunas pra todo mundo caber na tela ao mesmo tempo: 2
+// pessoas lado a lado, 4 num quadrado 2x2, 9 num 3x3, e assim por diante.
+// As linhas dividem a altura sozinhas (grid-auto-rows: 1fr no CSS).
+function layoutGrid() {
+  const n = videosGrid.children.length;
+  const cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
+  videosGrid.style.setProperty('--cols', cols);
 }
 
 // --- Lista de membros na sala de voz (sidebar) ---
