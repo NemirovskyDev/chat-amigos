@@ -30,7 +30,12 @@ app.get('/api/turn-credentials', async (req, res) => {
     const url = `https://${domain}/api/v1/turn/credentials?apiKey=${apiKey}`;
     const response = await fetch(url);
     const iceServers = await response.json();
-    res.json(iceServers);
+    // STUN do Google na frente da lista da Metered: mais uma chance de
+    // fechar conexão direta (srflx) antes de cair no relay, que é o
+    // único caminho que consome a cota.
+    res.json(Array.isArray(iceServers)
+      ? [{ urls: 'stun:stun.l.google.com:19302' }, ...iceServers]
+      : iceServers);
   } catch (err) {
     console.error('Erro ao buscar credenciais TURN:', err.message, err.cause?.message || '');
     res.json([{ urls: 'stun:stun.l.google.com:19302' }]);

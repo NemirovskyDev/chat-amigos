@@ -113,7 +113,10 @@ async function joinRoom() {
   await loadIceServers();
 
   try {
-    rawCameraStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+    rawCameraStream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: { width: { max: 1280 }, height: { max: 720 }, frameRate: { max: 30 } },
+    });
   } catch (err) {
     alert('Não foi possível acessar câmera/microfone: ' + err.message);
     return;
@@ -244,11 +247,27 @@ socket.on('peer-left', ({ peerId }) => {
   peerState.delete(peerId);
 });
 
+// Teto de bitrate do vídeo. Sem ele o navegador manda 1–2 Mbps e a cota
+// de 500 MB/mês do TURN some em ~1h de câmera ligada. O teto fica no
+// sender, não na track, então continua valendo depois do replaceTrack
+// da tela compartilhada.
+const MAX_VIDEO_BITRATE = 600_000;
+
+function capVideoBitrate(pc) {
+  const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+  if (!sender) return;
+  const params = sender.getParameters();
+  if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+  params.encodings[0].maxBitrate = MAX_VIDEO_BITRATE;
+  sender.setParameters(params).catch(err => console.warn('maxBitrate falhou', err));
+}
+
 function createPeerConnection(peerId, name, isInitiator) {
   const pc = new RTCPeerConnection({ iceServers });
   peers.set(peerId, { pc, name });
 
   localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+  capVideoBitrate(pc);
 
   pc.onicecandidate = (e) => {
     if (e.candidate) {
@@ -264,6 +283,7 @@ function createPeerConnection(peerId, name, isInitiator) {
   pc.oniceconnectionstatechange = () => {
     console.log(`[ICE ${peerId}]`, pc.iceConnectionState);
     setConnectionStatus(peerId, pc.iceConnectionState);
+    if (pc.iceConnectionState === 'connected') reportCandidatePair(peerId, pc);
   };
 
   if (isInitiator) {
@@ -275,6 +295,24 @@ function createPeerConnection(peerId, name, isInitiator) {
   }
 
   return pc;
+}
+
+// Diz por onde a mídia está passando: host/srflx é conexão direta (não
+// custa nada), relay é TURN (consome a cota da Metered). Marca no rótulo
+// do tile quem está no relay, pra dar pra ver sem abrir o console.
+async function reportCandidatePair(peerId, pc) {
+  const stats = await pc.getStats();
+  let pair = null;
+  stats.forEach(s => {
+    if (s.type === 'candidate-pair' && s.state === 'succeeded' && s.nominated) pair = s;
+  });
+  if (!pair) return;
+
+  const localType = stats.get(pair.localCandidateId)?.candidateType;
+  const remoteType = stats.get(pair.remoteCandidateId)?.candidateType;
+  const viaRelay = localType === 'relay' || remoteType === 'relay';
+  console.log(`[${peerId}] ${localType} <-> ${remoteType} — ${viaRelay ? 'TURN (gasta cota)' : 'direto'}`);
+  if (viaRelay) setConnectionStatus(peerId, 'via TURN');
 }
 
 // Mostra o estado da conexão ICE no rótulo do tile — ajuda a diagnosticar
@@ -539,12 +577,15 @@ camBtn.addEventListener('click', () => {
 });
 
 let sharingScreen = false;
+let screenStream = null; // guardado pra conseguir parar a captura depois
 
 screenBtn.addEventListener('click', async () => {
   if (!sharingScreen) {
-    let screenStream;
     try {
-      screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      // 10fps chega de sobra pra tela e corta boa parte do tráfego no TURN
+      screenStream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { max: 10 } },
+      });
     } catch (err) {
       return; // usuário cancelou
     }
@@ -564,6 +605,10 @@ screenBtn.addEventListener('click', async () => {
 
 function stopScreenShare() {
   replaceVideoTrackForAllPeers(cameraTrack);
+  // Sem esse stop() a captura de tela continuava rodando em segundo plano
+  // depois de parar pelo botão do app (só parava pelo botão do navegador).
+  if (screenStream) screenStream.getTracks().forEach(t => t.stop());
+  screenStream = null;
   document.querySelector('#tile-local video').srcObject = localStream;
   document.getElementById('tile-local').classList.toggle('cam-off', !camOn);
   socket.emit('media-state', { camOn });
@@ -580,4 +625,12 @@ function replaceVideoTrackForAllPeers(newTrack) {
 
 leaveBtn.addEventListener('click', () => {
   window.location.reload();
+});
+
+// Fechar/recarregar a aba derruba os relays e solta câmera e microfone na
+// hora, em vez de esperar o socket expirar do outro lado.
+window.addEventListener('pagehide', () => {
+  peers.forEach(({ pc }) => pc.close());
+  if (rawCameraStream) rawCameraStream.getTracks().forEach(t => t.stop());
+  if (screenStream) screenStream.getTracks().forEach(t => t.stop());
 });
